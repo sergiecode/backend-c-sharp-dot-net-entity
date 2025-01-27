@@ -462,6 +462,101 @@ public class ExceptionMiddleware
 - docker-compose up -d
 - dotnet run
 
+
+----------
+
+### 1. **GET: Obtener la lista de usuarios**
+
+-   **Método**: `GET`
+-   **URL**: `http://localhost:5230/api/users`
+-   **Descripción**: Esta solicitud devuelve todos los usuarios almacenados en la base de datos.
+
+Pasos:
+
+1.  Abre **Postman**.
+2.  En el campo de la URL, ingresa `http://localhost:5230/api/users`.
+3.  Asegúrate de que el método esté configurado como `GET` (por defecto debería estarlo).
+4.  Haz clic en el botón **Send** (enviar).
+5.  Si tienes usuarios en la base de datos, deberías recibir un JSON con los datos de los usuarios.
+
+### 2. **GET: Obtener un usuario por su ID**
+
+-   **Método**: `GET`
+-   **URL**: `http://localhost:5230/api/users/{id}`
+-   **Descripción**: Esta solicitud devuelve los detalles de un usuario específico usando su ID.
+
+Pasos:
+
+1.  En Postman, selecciona el método `GET`.
+2.  En la URL, reemplaza `{id}` con un ID válido. Por ejemplo, si el ID del usuario es 1, la URL será `http://localhost:5230/api/users/1`.
+3.  Haz clic en **Send**.
+4.  Si el usuario con ese ID existe, recibirás un JSON con los detalles del usuario.
+
+### 3. **POST: Crear un nuevo usuario**
+
+-   **Método**: `POST`
+-   **URL**: `http://localhost:5230/api/users`
+-   **Descripción**: Esta solicitud crea un nuevo usuario en la base de datos.
+
+Pasos:
+
+1.  En Postman, selecciona el método `POST`.
+2.  En la URL, ingresa `http://localhost:5230/api/users`.
+3.  Haz clic en la pestaña **Body** debajo de la URL.
+4.  Selecciona la opción **raw** y luego elige **JSON** en el selector de formato (a la derecha).
+5.  En el cuerpo (Body), ingresa el siguiente JSON para crear un nuevo usuario:
+
+
+```json
+{
+  "name": "Juan Pérez",
+  "email": "juan@example.com",
+  "password": "Contraseña123"
+}
+```
+
+6.  Haz clic en **Send**.
+7.  Si todo es correcto, deberías recibir una respuesta con el detalle del usuario recién creado.
+
+### 4. **PUT: Actualizar un usuario existente**
+
+-   **Método**: `PUT`
+-   **URL**: `http://localhost:5230/api/users/{id}`
+-   **Descripción**: Esta solicitud actualiza los detalles de un usuario específico.
+
+Pasos:
+
+1.  En Postman, selecciona el método `PUT`.
+2.  En la URL, reemplaza `{id}` con el ID del usuario que deseas actualizar (por ejemplo, `http://localhost:5230/api/users/1`).
+3.  Haz clic en la pestaña **Body**.
+4.  Selecciona **raw** y luego elige **JSON**.
+5.  Ingresa el nuevo JSON para actualizar los datos del usuario, por ejemplo:
+
+```json
+{
+  "name": "Juan Pérez Actualizado",
+  "email": "juan_nuevo@example.com",
+  "password": "NuevaContraseña123"
+}
+```
+
+6.  Haz clic en **Send**.
+7.  Si el usuario con ese ID existe, recibirás una respuesta confirmando la actualización.
+
+### 5. **DELETE: Eliminar un usuario**
+
+-   **Método**: `DELETE`
+-   **URL**: `http://localhost:5230/api/users/{id}`
+-   **Descripción**: Esta solicitud elimina un usuario por su ID.
+
+Pasos:
+
+1.  En Postman, selecciona el método `DELETE`.
+2.  En la URL, reemplaza `{id}` con el ID del usuario que deseas eliminar (por ejemplo, `http://localhost:5230/api/users/1`).
+3.  Haz clic en **Send**.
+4.  Si el usuario existe, recibirás una respuesta confirmando la eliminación.
+
+----------
  
 ## CANAL DE YOUTUBE:
  - [CANAL SERGIE CODE](https://www.youtube.com/@sergiecode)
