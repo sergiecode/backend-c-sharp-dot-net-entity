@@ -1,0 +1,6 @@
+# Ignorar el archivo .env
+.env
+
+# Ignorar otros archivos que no quieras subir
+bin/
+obj/
