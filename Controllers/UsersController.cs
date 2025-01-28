@@ -1,110 +1,147 @@
-using BackendUsuarios.Data;  // Importa el espacio de nombres que contiene el contexto de la base de datos (AppDbContext).
-using BackendUsuarios.Models;  // Importa el espacio de nombres que contiene los modelos (por ejemplo, el modelo de User).
-using Microsoft.AspNetCore.Mvc;  // Importa las clases necesarias para trabajar con ASP.NET Core MVC (controladores y respuestas).
+using BackendUsuarios.Data;
+using BackendUsuarios.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization; // Nuevo using
+using System.Security.Claims; // Nuevo using
+using Microsoft.IdentityModel.Tokens; // Nuevo using
+using System.IdentityModel.Tokens.Jwt; // Nuevo using
+using System.Text; // Nuevo using
 
-namespace BackendUsuarios.Controllers;  // Define el espacio de nombres para este controlador (que maneja la lógica de los usuarios).
+namespace BackendUsuarios.Controllers;
 
-[ApiController]  // Indica que esta clase es un controlador de API y que maneja solicitudes HTTP.
-[Route("api/[controller]")]  // Define la ruta base para las acciones del controlador. [controller] se reemplaza por el nombre del controlador, en este caso, 'users'.
-public class UsersController : ControllerBase  // La clase hereda de ControllerBase, lo que la convierte en un controlador de API.
+[ApiController]
+[Route("api/[controller]")]
+[Authorize] // Protege todo el controlador por defecto
+public class UsersController : ControllerBase
 {
-    private readonly AppDbContext _context;  // Declara una variable privada que almacenará el contexto de la base de datos (para interactuar con los datos).
+    private readonly AppDbContext _context;
+    private readonly IConfiguration _configuration; // Nueva inyección
 
-    // Constructor que recibe el contexto de la base de datos como parámetro e inicializa la variable _context.
-    public UsersController(AppDbContext context)
+    // Constructor actualizado
+    public UsersController(AppDbContext context, IConfiguration configuration)
     {
-        _context = context;  // Asigna el contexto recibido a la variable privada _context.
+        _context = context;
+        _configuration = configuration;
     }
 
-    // Acción GET para obtener todos los usuarios de la base de datos
-    [HttpGet]  // Define que esta acción responderá a solicitudes GET.
+    // Endpoint de Login (nuevo)
+    [HttpPost("login")]
+    [AllowAnonymous] // Excepción a la autenticación
+    public IActionResult Login([FromBody] LoginRequest request)
+    {
+        var user = _context.Users.FirstOrDefault(u => u.Email == request.Email && u.Password == request.Password);
+        
+        if (user == null)
+        {
+            return Unauthorized(new { Message = "Credenciales inválidas" });
+        }
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim(ClaimTypes.Email, user.Email)
+        };
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: _configuration["Jwt:Issuer"],
+            audience: _configuration["Jwt:Audience"],
+            claims: claims,
+            expires: DateTime.Now.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpireMinutes"])),
+            signingCredentials: creds
+        );
+
+        return Ok(new {
+            Token = new JwtSecurityTokenHandler().WriteToken(token),
+            Expiration = token.ValidTo,
+            UserId = user.Id
+        });
+    }
+
+    // Métodos existentes con modificaciones de seguridad
+
+    [HttpGet]
     public IActionResult GetUsers()
     {
-        var users = _context.Users.ToList();  // Obtiene todos los usuarios de la base de datos y los convierte en una lista.
-        return Ok(users);  // Devuelve una respuesta HTTP 200 con la lista de usuarios.
+        var users = _context.Users.ToList();
+        return Ok(users);
     }
 
-    // Acción GET para obtener un usuario por su ID
-    [HttpGet("{id:int}")]  // Define la ruta que recibirá un parámetro "id" de tipo entero en la URL.
+    [HttpGet("{id:int}")]
     public IActionResult GetUserById(int id)
     {
-        var user = _context.Users.FirstOrDefault(u => u.Id == id);  // Busca el primer usuario que tenga el ID proporcionado.
-        if (user == null)  // Si no se encuentra el usuario, devuelve una respuesta HTTP 404 (Not Found).
-        {
-            return NotFound(new { Message = $"User with ID {id} not found." });  // Devuelve un mensaje personalizado si el usuario no se encuentra.
-        }
-        return Ok(user);  // Si el usuario se encuentra, devuelve la información del usuario con una respuesta HTTP 200.
+        var user = _context.Users.FirstOrDefault(u => u.Id == id);
+        return user == null ? NotFound(new { Message = $"User with ID {id} not found." }) : Ok(user);
     }
 
-    // Acción POST para crear un nuevo usuario
-    [HttpPost]  // Define que esta acción responderá a solicitudes POST.
-    public IActionResult CreateUser([FromBody] User user)  // Recibe los datos del nuevo usuario en el cuerpo de la solicitud (en formato JSON).
+    [HttpPost]
+    [AllowAnonymous] // Permitir registro sin autenticación
+    public IActionResult CreateUser([FromBody] User user)
     {
-        if (!ModelState.IsValid)  // Verifica si el modelo recibido es válido (basado en las validaciones del modelo User).
+        if (!ModelState.IsValid)
         {
-            return BadRequest(ModelState);  // Si el modelo no es válido, devuelve un error 400 con los detalles de la validación.
+            return BadRequest(ModelState);
         }
 
-        // Verificar si el correo electrónico ya existe en la base de datos
-        var emailExists = _context.Users.Any(u => u.Email == user.Email);  // Busca si ya existe un usuario con el mismo correo electrónico.
-        if (emailExists)  // Si el correo ya está en uso, devuelve un error 400.
+        if (_context.Users.Any(u => u.Email == user.Email))
         {
-            return BadRequest(new { Message = "The email is already in use." });  // Devuelve un mensaje de error indicando que el correo ya está en uso.
+            return BadRequest(new { Message = "The email is already in use." });
         }
 
-        _context.Users.Add(user);  // Agrega el nuevo usuario a la base de datos.
-        _context.SaveChanges();  // Guarda los cambios en la base de datos (inserta el nuevo usuario).
+        // ¡IMPORTANTE! En producción deberías hashear la contraseña aquí
+        _context.Users.Add(user);
+        _context.SaveChanges();
 
-        return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, user);  // Devuelve una respuesta 201 (Created) con la URL para obtener el usuario recién creado.
+        return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, user);
     }
 
-    // Acción PUT para actualizar un usuario existente
-    [HttpPut("{id:int}")]  // Define la ruta que recibirá un parámetro "id" de tipo entero en la URL para identificar el usuario a actualizar.
-    public IActionResult UpdateUser(int id, [FromBody] User updatedUser)  // Recibe el ID y los datos del usuario actualizado.
+    [HttpPut("{id:int}")]
+    public IActionResult UpdateUser(int id, [FromBody] User updatedUser)
     {
-        if (!ModelState.IsValid)  // Verifica si el modelo recibido es válido (basado en las validaciones del modelo User).
+        if (!ModelState.IsValid)
         {
-            return BadRequest(ModelState);  // Si el modelo no es válido, devuelve un error 400 con los detalles de la validación.
+            return BadRequest(ModelState);
         }
 
-        var user = _context.Users.FirstOrDefault(u => u.Id == id);  // Busca el usuario en la base de datos con el ID proporcionado.
-        if (user == null)  // Si no se encuentra el usuario, devuelve una respuesta HTTP 404 (Not Found).
+        var user = _context.Users.FirstOrDefault(u => u.Id == id);
+        if (user == null)
         {
-            return NotFound(new { Message = $"User with ID {id} not found." });  // Devuelve un mensaje personalizado si el usuario no se encuentra.
+            return NotFound(new { Message = $"User with ID {id} not found." });
         }
 
-        // Verificar si el correo electrónico ya existe en otro usuario (no en el mismo usuario)
-        var emailExists = _context.Users
-                                  .Where(u => u.Id != id)  // Excluye al usuario actual para no verificar el correo del propio usuario.
-                                  .Any(u => u.Email == updatedUser.Email);  // Verifica si ya existe otro usuario con el mismo correo electrónico.
-        if (emailExists)  // Si el correo ya está en uso, devuelve un error 400.
+        if (_context.Users.Any(u => u.Id != id && u.Email == updatedUser.Email))
         {
-            return BadRequest(new { Message = "The email is already in use." });  // Devuelve un mensaje de error indicando que el correo ya está en uso.
+            return BadRequest(new { Message = "The email is already in use." });
         }
 
-        // Actualiza los datos del usuario en la base de datos
-        user.Name = updatedUser.Name;  // Actualiza el nombre del usuario.
-        user.Email = updatedUser.Email;  // Actualiza el correo electrónico del usuario.
-        user.Password = updatedUser.Password;  // Actualiza la contraseña del usuario.
+        user.Name = updatedUser.Name;
+        user.Email = updatedUser.Email;
+        user.Password = updatedUser.Password; // ¡Deberías actualizar el hash si usas hashing!
 
-        _context.SaveChanges();  // Guarda los cambios en la base de datos (actualiza los datos del usuario).
-
-        return Ok(new { Message = $"User with ID {id} updated successfully.", User = user });  // Devuelve una respuesta 200 con el usuario actualizado.
+        _context.SaveChanges();
+        return Ok(new { Message = $"User with ID {id} updated successfully.", User = user });
     }
 
-    // Acción DELETE para eliminar un usuario por su ID
-    [HttpDelete("{id:int}")]  // Define la ruta que recibirá un parámetro "id" de tipo entero en la URL para identificar el usuario a eliminar.
+    [HttpDelete("{id:int}")]
     public IActionResult DeleteUser(int id)
     {
-        var user = _context.Users.FirstOrDefault(u => u.Id == id);  // Busca el usuario en la base de datos con el ID proporcionado.
-        if (user == null)  // Si no se encuentra el usuario, devuelve una respuesta HTTP 404 (Not Found).
+        var user = _context.Users.FirstOrDefault(u => u.Id == id);
+        if (user == null)
         {
-            return NotFound(new { Message = $"User with ID {id} not found." });  // Devuelve un mensaje personalizado si el usuario no se encuentra.
+            return NotFound(new { Message = $"User with ID {id} not found." });
         }
 
-        _context.Users.Remove(user);  // Elimina el usuario de la base de datos.
-        _context.SaveChanges();  // Guarda los cambios en la base de datos (elimina el usuario).
+        _context.Users.Remove(user);
+        _context.SaveChanges();
+        return Ok(new { Message = $"User with ID {id} deleted successfully." });
+    }
 
-        return Ok(new { Message = $"User with ID {id} deleted successfully." });  // Devuelve una respuesta 200 indicando que el usuario fue eliminado correctamente.
+    // Clase DTO para el login
+    public class LoginRequest
+    {
+        public string Email { get; set; }
+        public string Password { get; set; }
     }
 }

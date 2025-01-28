@@ -11,8 +11,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BackendUsuarios.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250127110547_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20250128100940_initialMigration")]
+    partial class initialMigration
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -40,6 +40,10 @@ namespace BackendUsuarios.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
