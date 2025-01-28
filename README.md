@@ -56,6 +56,10 @@ dotnet add package Microsoft.EntityFrameworkCore.Tools
 dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL.Design
 dotnet add package Newtonsoft.Json
 dotnet add package DotNetEnv
+dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer
+dotnet add package System.IdentityModel.Tokens.Jwt
+dotnet add package Microsoft.AspNetCore.Authorization
+dotnet add package BCrypt.Net-Next
 ```
     
 2.  **Instala las herramientas de Entity Framework Core** (si no las tienes):
@@ -130,6 +134,12 @@ Modifica el archivo `appsettings.json` para definir la conexión a la base de da
 {
   "ConnectionStrings": {
     "DefaultConnection": "Host=${POSTGRES_HOST};Port=${POSTGRES_PORT};Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+  },
+  "Jwt": {
+    "Key": "TuClaveSuperSecretaDeAlMenos32Caracteres",
+    "Issuer": "TuIssuer",
+    "Audience": "TuAudience",
+    "ExpireMinutes": 60
   }
 }
 ```
@@ -139,59 +149,80 @@ Modifica el archivo `appsettings.json` para definir la conexión a la base de da
 En el archivo `Program.cs`, ajusta el código para reemplazar las variables de entorno en la conexión:
 
 ```csharp
-using BackendUsuarios.Data;
-using Microsoft.EntityFrameworkCore;
+using BackendUsuarios.Data; // Importación del contexto de datos (base de datos)
+using Microsoft.EntityFrameworkCore; // Librería para trabajar con Entity Framework Core
+using Microsoft.AspNetCore.Authentication.JwtBearer; // Librería para la autenticación JWT
+using Microsoft.IdentityModel.Tokens; // Librería para trabajar con validación de tokens JWT
+using System.Text; // Librería para manejar la codificación de texto (usada para claves JWT)
 
-var builder = WebApplication.CreateBuilder(args);
-DotNetEnv.Env.Load();
+var builder = WebApplication.CreateBuilder(args); // Construcción del objeto principal de la aplicación
+DotNetEnv.Env.Load(); // Carga variables de entorno desde un archivo .env
 
-
-// Reemplaza las variables de entorno en la cadena de conexión
+// Configuración de la cadena de conexión (existente)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 if (connectionString == null)
 {
-	throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+    // Verificación para asegurarse de que la cadena de conexión está configurada
+    throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 }
 
+// Reemplazo de valores en la cadena de conexión con variables de entorno
 connectionString = connectionString
-	.Replace("${POSTGRES_HOST}", Environment.GetEnvironmentVariable("POSTGRES_HOST"))
-	.Replace("${POSTGRES_PORT}", Environment.GetEnvironmentVariable("POSTGRES_PORT"))
-	.Replace("${POSTGRES_DB}", Environment.GetEnvironmentVariable("POSTGRES_DB"))
-	.Replace("${POSTGRES_USER}", Environment.GetEnvironmentVariable("POSTGRES_USER"))
-	.Replace("${POSTGRES_PASSWORD}", Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"));
+    .Replace("${POSTGRES_HOST}", Environment.GetEnvironmentVariable("POSTGRES_HOST"))
+    .Replace("${POSTGRES_PORT}", Environment.GetEnvironmentVariable("POSTGRES_PORT"))
+    .Replace("${POSTGRES_DB}", Environment.GetEnvironmentVariable("POSTGRES_DB"))
+    .Replace("${POSTGRES_USER}", Environment.GetEnvironmentVariable("POSTGRES_USER"))
+    .Replace("${POSTGRES_PASSWORD}", Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"));
 
-// Configurar DbContext para PostgreSQL
+// Configuración del servicio DbContext con PostgreSQL
 builder.Services.AddDbContext<AppDbContext>(options =>
-	options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString)); // Usa la cadena de conexión generada para conectar con la base de datos PostgreSQL
 
-// Agregar soporte para controladores API (REST)
-builder.Services.AddControllers();
+// Configuración del servicio de autenticación con JWT
+builder.Services.AddAuthentication(options => {
+    // Define el esquema de autenticación por defecto como JWT
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+}).AddJwtBearer(options => {
+    // Configuración de validación del token JWT
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true, // Valida el emisor del token
+        ValidateAudience = true, // Valida el público objetivo del token
+        ValidateLifetime = true, // Verifica que el token no haya expirado
+        ValidateIssuerSigningKey = true, // Valida la clave de firma del token
+        ValidIssuer = builder.Configuration["Jwt:Issuer"], // Emisor válido (configurado en appsettings.json o variables de entorno)
+        ValidAudience = builder.Configuration["Jwt:Audience"], // Público válido
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])) // Clave de firma simétrica
+    };
+});
 
-// Configurar OpenAPI (Swagger) si es necesario
-builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddAuthorization(); // Servicio para manejar autorizaciones basadas en políticas
 
-// builder.Services.AddSwaggerGen();
+builder.Services.AddControllers(); // Registra los controladores para manejar solicitudes HTTP
+builder.Services.AddEndpointsApiExplorer(); // Habilita la documentación de los endpoints
 
-var app = builder.Build();
+var app = builder.Build(); // Construye la aplicación con la configuración definida
 
-// Usar middleware de excepciones personalizado
+// Middleware personalizado para manejar excepciones
 app.UseMiddleware<BackendUsuarios.Middleware.ExceptionMiddleware>();
 
+// Middleware pipeline (el orden es crucial para el correcto funcionamiento)
 
-// Usar Swagger UI si está en desarrollo
-// if (app.Environment.IsDevelopment())
-// {
-// 	app.UseSwagger();
-// 	app.UseSwaggerUI();
-// }
-
+// Redirige automáticamente las solicitudes HTTP a HTTPS
 app.UseHttpsRedirection();
-app.UseAuthorization();
+app.UseRouting(); // Habilita el enrutamiento de solicitudes
 
-// Mapear controladores (con API REST)
+// Middleware de autenticación y autorización
+app.UseAuthentication(); // Debe estar antes de UseAuthorization para autenticar las solicitudes primero
+app.UseAuthorization(); // Verifica las políticas de autorización definidas
+
+// Mapeo de controladores para manejar las rutas
 app.MapControllers();
 
+// Logs de depuración (imprime las variables de conexión a PostgreSQL)
 var postgresHost = Environment.GetEnvironmentVariable("POSTGRES_HOST");
 var postgresPort = Environment.GetEnvironmentVariable("POSTGRES_PORT");
 var postgresDb = Environment.GetEnvironmentVariable("POSTGRES_DB");
@@ -200,6 +231,7 @@ var postgresPassword = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD");
 
 Console.WriteLine($"Host: {postgresHost}, Port: {postgresPort}, DB: {postgresDb}, User: {postgresUser}");
 
+// Ejecuta la aplicación
 app.Run();
 ```
 
@@ -212,25 +244,28 @@ app.Run();
 En la carpeta raíz del proyecto, crea una carpeta llamada `Models` y dentro un archivo `User.cs`:
 
 ```csharp
-using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;  // Importa las clases necesarias para realizar validaciones de datos, como Required, MaxLength, etc.
 
-namespace BackendUsuarios.Models;
+namespace BackendUsuarios.Models;  // Define el espacio de nombres para los modelos de datos.
 
-public class User
+public class User  // Declara la clase User que representa el modelo de usuario en la aplicación.
 {
-	public int Id { get; set; }
+    public int Id { get; set; }  // Propiedad Id que representa el identificador único del usuario en la base de datos.
 
-	[Required(ErrorMessage = "The name is required.")]
-	[MaxLength(50, ErrorMessage = "The name can't exceed 50 characters.")]
-	public string Name { get; set; }
+    // La propiedad Name, que es un campo de texto con validaciones de longitud y obligatoriedad.
+    [Required(ErrorMessage = "The name is required.")]  // La validación asegura que el nombre sea obligatorio.
+    [MaxLength(50, ErrorMessage = "The name can't exceed 50 characters.")]  // Limita la longitud del nombre a 50 caracteres.
+    public string Name { get; set; }  // Propiedad Name que almacena el nombre del usuario.
 
-	[Required(ErrorMessage = "The email is required.")]
-	[EmailAddress(ErrorMessage = "The email format is invalid.")]
-	public string Email { get; set; }
-	
-	[Required(ErrorMessage = "The email is required.")]
-	[RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,50}$", ErrorMessage = "The password must have at least one lowercase letter, one uppercase letter, and one number.")]
-	public string Password { get; set; }
+    // La propiedad Email, que representa la dirección de correo electrónico del usuario con validaciones.
+    [Required(ErrorMessage = "The email is required.")]  // La validación asegura que el correo electrónico sea obligatorio.
+    [EmailAddress(ErrorMessage = "The email format is invalid.")]  // Valida que el correo tenga un formato correcto (ej. usuario@dominio.com).
+    public string Email { get; set; }  // Propiedad Email que almacena el correo electrónico del usuario.
+    
+    // La propiedad Password, que representa la contraseña del usuario con validaciones.
+    [Required(ErrorMessage = "The email is required.")]  // La validación asegura que la contraseña sea obligatoria.
+    [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,50}$", ErrorMessage = "The password must have at least one lowercase letter, one uppercase letter, and one number.")]  // La contraseña debe tener al menos una letra minúscula, una mayúscula, un número y entre 6 y 50 caracteres.
+    public string Password { get; set; }  // Propiedad Password que almacena la contraseña del usuario.
 }
 ```
 
@@ -256,10 +291,10 @@ public class AppDbContext : DbContext
 
 ### **7. Configurar las migraciones**
 
-1.  **Crear la primera migración**:
+1.  **Crear la primera migración (el nombre puede ser cualquiera)**:
     
 ```bash
-dotnet ef migrations add InitialCreate
+dotnet ef migrations add nombrePrimeraMigracion
 ```
     
 2.  **Aplicar las migraciones**:
@@ -276,117 +311,184 @@ dotnet ef database update
 En la carpeta `Controllers`, crea un archivo `UsersController.cs`:
 
 ```csharp
-using BackendUsuarios.Data;
-using BackendUsuarios.Models;
-using Microsoft.AspNetCore.Mvc;
+using BackendUsuarios.Data; // Importa el espacio de nombres donde se encuentra el contexto de base de datos (AppDbContext).
+using BackendUsuarios.Models; // Importa los modelos de datos (por ejemplo, User).
+using Microsoft.AspNetCore.Mvc; // Proporciona clases para crear controladores y manejar solicitudes HTTP.
+using Microsoft.AspNetCore.Authorization; // Habilita la autorización para proteger controladores o endpoints.
+using System.Security.Claims; // Proporciona clases para manejar claims (información del usuario autenticado).
+using Microsoft.IdentityModel.Tokens; // Permite trabajar con tokens de seguridad (e.g., claves de firma).
+using System.IdentityModel.Tokens.Jwt; // Proporciona funcionalidad para crear y manejar tokens JWT.
+using System.Text; // Permite trabajar con codificación de texto.
+using BCrypt.Net; // Biblioteca para realizar el hash y verificación de contraseñas.
 
-namespace BackendUsuarios.Controllers;
+namespace BackendUsuarios.Controllers; // Define el espacio de nombres del controlador.
 
-[ApiController]
-[Route("api/[controller]")]
-public class UsersController : ControllerBase
+[ApiController] // Especifica que esta clase es un controlador API.
+[Route("api/[controller]")] // Configura la ruta base para este controlador (e.g., "api/users").
+[Authorize] // Requiere autenticación para todos los métodos del controlador, a menos que se anule.
+public class UsersController : ControllerBase // Define un controlador base para manejar solicitudes HTTP.
 {
-    private readonly AppDbContext _context;
+	private readonly AppDbContext _context; // Inyección del contexto de base de datos para interactuar con la DB.
+	private readonly IConfiguration _configuration; // Inyección de la configuración para acceder a las claves de appsettings.json.
 
-    public UsersController(AppDbContext context)
-    {
-        _context = context;
-    }
+	// Constructor del controlador que inicializa las dependencias inyectadas.
+	public UsersController(AppDbContext context, IConfiguration configuration)
+	{
+		_context = context; // Inicializa el contexto de base de datos.
+		_configuration = configuration; // Inicializa la configuración.
+	}
 
-    // GET: api/users
-    [HttpGet]
-    public IActionResult GetUsers()
-    {
-        var users = _context.Users.ToList();
-        return Ok(users);
-    }
+	// Endpoint para iniciar sesión.
+	[HttpPost("login")] // Define una ruta POST en "api/users/login".
+	[AllowAnonymous] // Permite el acceso sin autenticación.
+	public IActionResult Login([FromBody] LoginRequest request) // Recibe un objeto con las credenciales de login.
+	{
+		// Busca el usuario en la base de datos por su email.
+		var user = _context.Users.FirstOrDefault(u => u.Email == request.Email);
+		
+		// Verifica si el usuario existe y si la contraseña proporcionada es válida.
+		if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+		{
+			return Unauthorized(new { Message = "Credenciales inválidas" }); // Retorna un error 401 si las credenciales son incorrectas.
+		}
 
-    // GET: api/users/{id}
-    [HttpGet("{id:int}")]
-    public IActionResult GetUserById(int id)
-    {
-        var user = _context.Users.FirstOrDefault(u => u.Id == id);
-        if (user == null)
-        {
-            return NotFound(new { Message = $"User with ID {id} not found." });
-        }
-        return Ok(user);
-    }
+		// Crea un conjunto de claims para el usuario autenticado.
+		var claims = new[]
+		{
+			new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), // Agrega el ID del usuario como claim.
+			new Claim(ClaimTypes.Email, user.Email) // Agrega el email del usuario como claim.
+		};
 
-    // POST: api/users
-    [HttpPost]
-    public IActionResult CreateUser([FromBody] User user)
-    {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState); // Devuelve errores de validación automáticamente.
-        }
+		// Genera una clave simétrica a partir de la configuración (clave secreta para firmar el token).
+		var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+		// Crea credenciales de firma para el token usando la clave.
+		var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        // Verificar si el correo electrónico ya existe
-        var emailExists = _context.Users.Any(u => u.Email == user.Email);
-        if (emailExists)
-        {
-            return BadRequest(new { Message = "The email is already in use." });
-        }
+		// Genera el token JWT con los claims, la configuración y el tiempo de expiración.
+		var token = new JwtSecurityToken(
+			issuer: _configuration["Jwt:Issuer"], // Emisor del token.
+			audience: _configuration["Jwt:Audience"], // Audiencia del token.
+			claims: claims, // Claims del usuario.
+			expires: DateTime.Now.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpireMinutes"])), // Tiempo de expiración.
+			signingCredentials: creds // Credenciales de firma.
+		);
 
-        _context.Users.Add(user);
-        _context.SaveChanges();
+		// Retorna el token generado junto con información adicional (expiración e ID del usuario).
+		return Ok(new {
+			Token = new JwtSecurityTokenHandler().WriteToken(token), // Escribe el token como una cadena.
+			Expiration = token.ValidTo, // Fecha de expiración del token.
+			UserId = user.Id // ID del usuario autenticado.
+		});
+	}
 
-        return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, user);
-    }
+	// Endpoint para obtener todos los usuarios.
+	[HttpGet] // Define una ruta GET en "api/users".
+	public IActionResult GetUsers()
+	{
+		// Obtiene la lista de usuarios desde la base de datos.
+		var users = _context.Users.ToList();
+		return Ok(users); // Retorna la lista en la respuesta HTTP.
+	}
 
-    // PUT: api/users/{id}
-    [HttpPut("{id:int}")]
-    public IActionResult UpdateUser(int id, [FromBody] User updatedUser)
-    {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
+	// Endpoint para obtener un usuario por su ID.
+	[HttpGet("{id:int}")] // Define una ruta GET con un parámetro de ID entero.
+	public IActionResult GetUserById(int id)
+	{
+		// Busca al usuario en la base de datos por su ID.
+		var user = _context.Users.FirstOrDefault(u => u.Id == id);
+		// Retorna 404 si el usuario no existe; de lo contrario, retorna el usuario.
+		return user == null ? NotFound(new { Message = $"User with ID {id} not found." }) : Ok(user);
+	}
 
-        var user = _context.Users.FirstOrDefault(u => u.Id == id);
+	// Endpoint para crear un nuevo usuario.
+	[HttpPost] // Define una ruta POST en "api/users".
+	[AllowAnonymous] // Permite el acceso sin autenticación.
+	public IActionResult CreateUser([FromBody] User user) // Recibe un objeto con los datos del usuario a crear.
+	{
+		// Valida el modelo recibido; si no es válido, retorna un error 400.
+		if (!ModelState.IsValid)
+		{
+			return BadRequest(ModelState);
+		}
 
-        if (user == null)
-        {
-            return NotFound(new { Message = $"User with ID {id} not found." });
-        }
+		// Verifica si el correo ya está en uso en la base de datos.
+		if (_context.Users.Any(u => u.Email == user.Email))
+		{
+			return BadRequest(new { Message = "El correo ya está en uso" }); // Retorna un error 400 si ya existe.
+		}
 
-        // Verificar si el correo electrónico ya existe en otro usuario (no en el mismo usuario)
-        var emailExists = _context.Users
-                                  .Where(u => u.Id != id)  // Excluir al usuario actual
-                                  .Any(u => u.Email == updatedUser.Email);
-        if (emailExists)
-        {
-            return BadRequest(new { Message = "The email is already in use." });
-        }
+		// Hashea la contraseña del usuario antes de guardarla.
+		user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password, BCrypt.Net.BCrypt.GenerateSalt(12));
+		
+		// Agrega el usuario a la base de datos y guarda los cambios.
+		_context.Users.Add(user);
+		_context.SaveChanges();
 
-        // Actualizar los datos
-        user.Name = updatedUser.Name;
-        user.Email = updatedUser.Email;
-	user.Password = updatedUser.Password;
+		// Retorna un 201 con la información del usuario creado.
+		return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, user);
+	}
 
-        _context.SaveChanges();
+	// Endpoint para actualizar un usuario existente.
+	[HttpPut("{id:int}")] // Define una ruta PUT con un parámetro de ID entero.
+	public IActionResult UpdateUser(int id, [FromBody] User updatedUser)
+	{
+		// Valida el modelo recibido; si no es válido, retorna un error 400.
+		if (!ModelState.IsValid)
+		{
+			return BadRequest(ModelState);
+		}
 
-        return Ok(new { Message = $"User with ID {id} updated successfully.", User = user });
-    }
+		// Busca al usuario en la base de datos por su ID.
+		var user = _context.Users.FirstOrDefault(u => u.Id == id);
+		if (user == null)
+		{
+			return NotFound(new { Message = $"Usuario no encontrado" }); // Retorna 404 si el usuario no existe.
+		}
 
+		// Verifica si el correo ya está en uso por otro usuario.
+		if (_context.Users.Any(u => u.Id != id && u.Email == updatedUser.Email))
+		{
+			return BadRequest(new { Message = "El correo ya está en uso" }); // Retorna un error 400 si ya existe.
+		}
 
-    // DELETE: api/users/{id}
-    [HttpDelete("{id:int}")]
-    public IActionResult DeleteUser(int id)
-    {
-        var user = _context.Users.FirstOrDefault(u => u.Id == id);
+		// Actualiza la contraseña si es diferente de la existente.
+		if (!BCrypt.Net.BCrypt.Verify(updatedUser.Password, user.Password))
+		{
+			user.Password = BCrypt.Net.BCrypt.HashPassword(updatedUser.Password, BCrypt.Net.BCrypt.GenerateSalt(12));
+		}
 
-        if (user == null)
-        {
-            return NotFound(new { Message = $"User with ID {id} not found." });
-        }
+		// Actualiza los datos del usuario.
+		user.Name = updatedUser.Name;
+		user.Email = updatedUser.Email;
 
-        _context.Users.Remove(user);
-        _context.SaveChanges();
+		// Guarda los cambios en la base de datos.
+		_context.SaveChanges();
+		return Ok(new { Message = $"Usuario actualizado", User = user }); // Retorna el usuario actualizado.
+	}
 
-        return Ok(new { Message = $"User with ID {id} deleted successfully." });
-    }
+	// Endpoint para eliminar un usuario por su ID.
+	[HttpDelete("{id:int}")] // Define una ruta DELETE con un parámetro de ID entero.
+	public IActionResult DeleteUser(int id)
+	{
+		// Busca al usuario en la base de datos por su ID.
+		var user = _context.Users.FirstOrDefault(u => u.Id == id);
+		if (user == null)
+		{
+			return NotFound(new { Message = $"User with ID {id} not found." }); // Retorna 404 si no existe.
+		}
+
+		// Elimina al usuario de la base de datos y guarda los cambios.
+		_context.Users.Remove(user);
+		_context.SaveChanges();
+		return Ok(new { Message = $"User with ID {id} deleted successfully." }); // Retorna un mensaje de éxito.
+	}
+
+	// Clase DTO (Data Transfer Object) para recibir los datos de login.
+	public class LoginRequest
+	{
+		public string Email { get; set; } // Email del usuario.
+		public string Password { get; set; } // Contraseña del usuario.
+	}
 }
 ```
 
@@ -449,6 +551,8 @@ public class ExceptionMiddleware
 
 ## Averiguar:
 
+Si recién te bajás el proyecto tenés que hacer:
+- dotnet restore
 - dotnet ef migrations list
 - dotnet ef database update 0
 - dotnet ef database update
@@ -462,101 +566,6 @@ public class ExceptionMiddleware
 - docker-compose up -d
 - dotnet run
 
-
-----------
-
-### 1. **GET: Obtener la lista de usuarios**
-
--   **Método**: `GET`
--   **URL**: `http://localhost:5230/api/users`
--   **Descripción**: Esta solicitud devuelve todos los usuarios almacenados en la base de datos.
-
-Pasos:
-
-1.  Abre **Postman**.
-2.  En el campo de la URL, ingresa `http://localhost:5230/api/users`.
-3.  Asegúrate de que el método esté configurado como `GET` (por defecto debería estarlo).
-4.  Haz clic en el botón **Send** (enviar).
-5.  Si tienes usuarios en la base de datos, deberías recibir un JSON con los datos de los usuarios.
-
-### 2. **GET: Obtener un usuario por su ID**
-
--   **Método**: `GET`
--   **URL**: `http://localhost:5230/api/users/{id}`
--   **Descripción**: Esta solicitud devuelve los detalles de un usuario específico usando su ID.
-
-Pasos:
-
-1.  En Postman, selecciona el método `GET`.
-2.  En la URL, reemplaza `{id}` con un ID válido. Por ejemplo, si el ID del usuario es 1, la URL será `http://localhost:5230/api/users/1`.
-3.  Haz clic en **Send**.
-4.  Si el usuario con ese ID existe, recibirás un JSON con los detalles del usuario.
-
-### 3. **POST: Crear un nuevo usuario**
-
--   **Método**: `POST`
--   **URL**: `http://localhost:5230/api/users`
--   **Descripción**: Esta solicitud crea un nuevo usuario en la base de datos.
-
-Pasos:
-
-1.  En Postman, selecciona el método `POST`.
-2.  En la URL, ingresa `http://localhost:5230/api/users`.
-3.  Haz clic en la pestaña **Body** debajo de la URL.
-4.  Selecciona la opción **raw** y luego elige **JSON** en el selector de formato (a la derecha).
-5.  En el cuerpo (Body), ingresa el siguiente JSON para crear un nuevo usuario:
-
-
-```json
-{
-  "name": "Juan Pérez",
-  "email": "juan@example.com",
-  "password": "Contraseña123"
-}
-```
-
-6.  Haz clic en **Send**.
-7.  Si todo es correcto, deberías recibir una respuesta con el detalle del usuario recién creado.
-
-### 4. **PUT: Actualizar un usuario existente**
-
--   **Método**: `PUT`
--   **URL**: `http://localhost:5230/api/users/{id}`
--   **Descripción**: Esta solicitud actualiza los detalles de un usuario específico.
-
-Pasos:
-
-1.  En Postman, selecciona el método `PUT`.
-2.  En la URL, reemplaza `{id}` con el ID del usuario que deseas actualizar (por ejemplo, `http://localhost:5230/api/users/1`).
-3.  Haz clic en la pestaña **Body**.
-4.  Selecciona **raw** y luego elige **JSON**.
-5.  Ingresa el nuevo JSON para actualizar los datos del usuario, por ejemplo:
-
-```json
-{
-  "name": "Juan Pérez Actualizado",
-  "email": "juan_nuevo@example.com",
-  "password": "NuevaContraseña123"
-}
-```
-
-6.  Haz clic en **Send**.
-7.  Si el usuario con ese ID existe, recibirás una respuesta confirmando la actualización.
-
-### 5. **DELETE: Eliminar un usuario**
-
--   **Método**: `DELETE`
--   **URL**: `http://localhost:5230/api/users/{id}`
--   **Descripción**: Esta solicitud elimina un usuario por su ID.
-
-Pasos:
-
-1.  En Postman, selecciona el método `DELETE`.
-2.  En la URL, reemplaza `{id}` con el ID del usuario que deseas eliminar (por ejemplo, `http://localhost:5230/api/users/1`).
-3.  Haz clic en **Send**.
-4.  Si el usuario existe, recibirás una respuesta confirmando la eliminación.
-
-----------
  
 ## CANAL DE YOUTUBE:
  - [CANAL SERGIE CODE](https://www.youtube.com/@sergiecode)
