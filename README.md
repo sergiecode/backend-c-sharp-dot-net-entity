@@ -544,27 +544,35 @@ public class ExceptionMiddleware
 }
 ```
 
-## Comandos para ejecutar
 
-## Chequear migraciones
-- docker ps
+### Flujo Típico de Trabajo con Docker y DotNet
 
-## Averiguar:
+**Ejemplo práctico cuando te bajás el proyecto**:
 
-Si recién te bajás el proyecto tenés que hacer:
-- dotnet restore
-- dotnet ef migrations list
-- dotnet ef database update 0
-- dotnet ef database update
+1.  `docker-compose up -d`  → Levantas servicios (DB)
+    
+2.  `dotnet restore`  → Restauras dependencias
+    
+3.  `dotnet ef migrations list`  → Verificas migraciones existentes
+    
+4.  `dotnet ef database update 0`  → (Opcional) Reseteas DB si es necesario
+    
+5.  `dotnet ef database update`  → Aplicas todas las migraciones
+    
+6.  `dotnet run`  → Inicias la aplicación
+    
 
-## Hacer migración cuando cambia modelo o agregar otros modelos
-- dotnet ef migrations add nombreNuevoMigracion
-- dotnet ef database update
+**Si modificas modelos / o recién iniciás**:
 
-## Ejecución general:
+1.  Haces cambios en tus clases de entidad
+    
+2.  `dotnet ef migrations add MiCambio`
+    
+3.  `dotnet ef database update`
+    
+4.  `dotnet run`
 
-- docker-compose up -d
-- dotnet run
+
 
  
 ## CANAL DE YOUTUBE:
