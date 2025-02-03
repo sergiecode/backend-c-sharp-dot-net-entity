@@ -4,7 +4,7 @@ namespace BackendUsuarios.Models;  // Define el espacio de nombres para los mode
 
 public class User  // Declara la clase User que representa el modelo de usuario en la aplicación.
 {
-    public int Id { get; set; }  // Propiedad Id que representa el identificador único del usuario en la base de datos.
+    public Guid Id { get; set; }  // Propiedad Id que representa el identificador único del usuario en la base de datos.
 
     // La propiedad Name, que es un campo de texto con validaciones de longitud y obligatoriedad.
     [Required(ErrorMessage = "The name is required.")]  // La validación asegura que el nombre sea obligatorio.
@@ -21,6 +21,6 @@ public class User  // Declara la clase User que representa el modelo de usuario 
     [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,50}$", ErrorMessage = "The password must have at least one lowercase letter, one uppercase letter, and one number.")]  // La contraseña debe tener al menos una letra minúscula, una mayúscula, un número y entre 6 y 50 caracteres.
     public required string Password { get; set; }  // Propiedad Password que almacena la contraseña del usuario.
 
-    public int RoleId { get; set; } // Propiedad RoleId que representa el identificador del rol del usuario en la base de datos.
+    public Guid RoleId { get; set; } // Propiedad RoleId que representa el identificador del rol del usuario en la base de datos.
     public Role? Role { get; set; }// Propiedad Role que representa el rol del usuario en la aplicación.
 }

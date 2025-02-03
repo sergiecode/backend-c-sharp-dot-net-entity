@@ -91,8 +91,8 @@ public class UsersController : ControllerBase // Define un controlador base para
 
 
 	// Endpoint para obtener un usuario por su ID.
-	[HttpGet("{id:int}")] // Define una ruta GET con un parámetro de ID entero.
-	public IActionResult GetUserById(int id)
+	[HttpGet("{id:guid}")] // Define una ruta GET con un parámetro de ID entero.
+	public IActionResult GetUserById(Guid id)
 	{
 		// Busca al usuario en la base de datos por su ID.
 		var user = _context.Users.FirstOrDefault(u => u.Id == id);
@@ -133,8 +133,8 @@ public class UsersController : ControllerBase // Define un controlador base para
 	}
 
 	// Endpoint para actualizar un usuario existente.
-	[HttpPut("{id:int}")] // Define una ruta PUT con un parámetro de ID entero.
-	public IActionResult UpdateUser(int id, [FromBody] User updatedUser)
+	[HttpPut("{id:guid}")] // Define una ruta PUT con un parámetro de ID entero.
+	public IActionResult UpdateUser(Guid id, [FromBody] User updatedUser)
 	{
 		// Valida el modelo recibido; si no es válido, retorna un error 400.
 		if (!ModelState.IsValid)
@@ -171,8 +171,8 @@ public class UsersController : ControllerBase // Define un controlador base para
 	}
 
 	// Endpoint para eliminar un usuario por su ID.
-	[HttpDelete("{id:int}")] // Define una ruta DELETE con un parámetro de ID entero.
-	public IActionResult DeleteUser(int id)
+	[HttpDelete("{id:guid}")] // Define una ruta DELETE con un parámetro de ID entero.
+	public IActionResult DeleteUser(Guid id)
 	{
 		// Busca al usuario en la base de datos por su ID.
 		var user = _context.Users.FirstOrDefault(u => u.Id == id);

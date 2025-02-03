@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;  // Importa las clases necesarias p
 namespace BackendUsuarios.Models;  // Define el espacio de nombres para los modelos de datos.
 public class Role
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
 
     [Required]
     [MinLength(3)]

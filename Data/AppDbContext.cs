@@ -16,9 +16,10 @@ public class AppDbContext : DbContext
 
         // Seed de roles
         modelBuilder.Entity<Role>().HasData(
-            new Role { Id = 1, Name = "Admin" },
-            new Role { Id = 2, Name = "User" }
+            new Role { Id = Guid.Parse("a0eeb8c1-bcdc-47c8-a48a-7e4d79e593a4"), Name = "Admin" },
+            new Role { Id = Guid.Parse("b6b6c56e-416a-4b53-8fc6-b1eac0887c0e"), Name = "User" }
         );
+
 
     }
 
