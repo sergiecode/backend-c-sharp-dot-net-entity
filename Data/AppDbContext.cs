@@ -1,13 +1,29 @@
-using BackendUsuarios.Models;  // Importa el espacio de nombres que contiene los modelos, en este caso, el modelo de User.
-using Microsoft.EntityFrameworkCore;  // Importa las clases necesarias para trabajar con Entity Framework Core, que es el ORM para interactuar con la base de datos.
+using BackendUsuarios.Models;
+using BackendUsuarios.Models.Roles;
+using BackendUsuarios.Models.Users;
+using Microsoft.EntityFrameworkCore;
 
-namespace BackendUsuarios.Data;  // Define el espacio de nombres para este archivo, que contiene la configuración del contexto de base de datos.
+namespace BackendUsuarios.Data;
 
-public class AppDbContext : DbContext  // Declara la clase AppDbContext que hereda de DbContext, lo que permite interactuar con la base de datos.
+public class AppDbContext : DbContext
 {
-    // Constructor que recibe las opciones de configuración de la base de datos como parámetro e inicializa la clase base (DbContext).
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-    // DbSet que representa la tabla de usuarios en la base de datos. Este DbSet permitirá hacer operaciones CRUD (Crear, Leer, Actualizar, Eliminar) sobre los usuarios.
     public DbSet<User> Users { get; set; }
+    public DbSet<Role> Roles { get; set; } // Agregar la tabla Roles
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Seed de roles
+        modelBuilder.Entity<Role>().HasData(
+            new Role { Id = Guid.Parse("a0eeb8c1-bcdc-47c8-a48a-7e4d79e593a4"), Name = "Admin" },
+            new Role { Id = Guid.Parse("b6b6c56e-416a-4b53-8fc6-b1eac0887c0e"), Name = "User" }
+        );
+
+
+    }
+
+
 }
