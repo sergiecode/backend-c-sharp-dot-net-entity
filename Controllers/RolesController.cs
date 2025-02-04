@@ -1,5 +1,6 @@
+// RolesController.cs
 using BackendUsuarios.Data;
-using BackendUsuarios.Models;
+using BackendUsuarios.Models.Roles;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,7 @@ namespace BackendUsuarios.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "Admin")] // Solo los administradores pueden gestionar roles
+    [Authorize(Roles = "Admin")]
     public class RolesController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -18,80 +19,62 @@ namespace BackendUsuarios.Controllers
             _context = context;
         }
 
-        // Obtener todos los roles
         [HttpGet]
-        public IActionResult GetRoles()
+        public async Task<IActionResult> GetRoles()
         {
-            var roles = _context.Roles.ToList();
+            var roles = await _context.Roles.ToListAsync();
             return Ok(roles);
         }
 
-        // Obtener un rol por ID
         [HttpGet("{id:guid}")]
-        public IActionResult GetRoleById(Guid id)
+        public async Task<IActionResult> GetRoleById(Guid id)
         {
-            var role = _context.Roles.FirstOrDefault(r => r.Id == id);
+            var role = await _context.Roles.FindAsync(id);
             if (role == null)
-            {
-                return NotFound(new { Message = "Rol no encontrado." });
-            }
+                return NotFound(new { Message = "Role not found." });
+
             return Ok(role);
         }
 
-        // Crear un nuevo rol
         [HttpPost]
-        public IActionResult CreateRole([FromBody] Role role)
+        public async Task<IActionResult> CreateRole([FromBody] RoleCreateDto roleDto)
         {
-            if (string.IsNullOrWhiteSpace(role.Name))
-            {
-                return BadRequest(new { Message = "El nombre del rol es requerido." });
-            }
+            if (await _context.Roles.AnyAsync(r => r.Name == roleDto.Name))
+                return BadRequest(new { Message = "The role already exists." });
 
-            if (_context.Roles.Any(r => r.Name == role.Name))
-            {
-                return BadRequest(new { Message = "El rol ya existe." });
-            }
-
-            role.Id = Guid.NewGuid(); // Genera un nuevo ID para el rol
+            var role = new Role { Id = Guid.NewGuid(), Name = roleDto.Name };
             _context.Roles.Add(role);
-            _context.SaveChanges();
+            await _context.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetRoleById), new { id = role.Id }, role);
         }
 
-        // Actualizar un rol existente
         [HttpPut("{id:guid}")]
-        public IActionResult UpdateRole(Guid id, [FromBody] Role updatedRole)
+        public async Task<IActionResult> UpdateRole(Guid id, [FromBody] RoleUpdateDto updatedRoleDto)
         {
-            var role = _context.Roles.FirstOrDefault(r => r.Id == id);
+            var role = await _context.Roles.FindAsync(id);
             if (role == null)
-            {
-                return NotFound(new { Message = "Rol no encontrado." });
-            }
+                return NotFound(new { Message = "Role not found." });
 
-            if (string.IsNullOrWhiteSpace(updatedRole.Name))
-            {
-                return BadRequest(new { Message = "El nombre del rol es requerido." });
-            }
+            if (await _context.Roles.AnyAsync(r => r.Name == updatedRoleDto.Name && r.Id != id))
+                return BadRequest(new { Message = "The role name is already in use." });
 
-            role.Name = updatedRole.Name;
-            _context.SaveChanges();
-            return Ok(new { Message = "Rol actualizado exitosamente.", Role = role });
+            role.Name = updatedRoleDto.Name;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { Message = "Role updated successfully.", Role = role });
         }
 
-        // Eliminar un rol
         [HttpDelete("{id:guid}")]
-        public IActionResult DeleteRole(Guid id)
+        public async Task<IActionResult> DeleteRole(Guid id)
         {
-            var role = _context.Roles.FirstOrDefault(r => r.Id == id);
+            var role = await _context.Roles.FindAsync(id);
             if (role == null)
-            {
-                return NotFound(new { Message = "Rol no encontrado." });
-            }
+                return NotFound(new { Message = "Role not found." });
 
             _context.Roles.Remove(role);
-            _context.SaveChanges();
-            return Ok(new { Message = "Rol eliminado exitosamente." });
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "Role deleted successfully." });
         }
     }
 }

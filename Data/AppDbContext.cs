@@ -1,4 +1,6 @@
 using BackendUsuarios.Models;
+using BackendUsuarios.Models.Roles;
+using BackendUsuarios.Models.Users;
 using Microsoft.EntityFrameworkCore;
 
 namespace BackendUsuarios.Data;
