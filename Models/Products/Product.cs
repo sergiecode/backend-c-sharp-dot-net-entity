@@ -5,10 +5,8 @@ using BackendUsuarios.Models.Suppliers;
 
 namespace BackendUsuarios.Models.Products;
 
-public class Product
+public class Product : BaseEntity
 {
-    public Guid Id { get; set; }
-    public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal Price { get; set; }
     public Guid StockId { get; set; }

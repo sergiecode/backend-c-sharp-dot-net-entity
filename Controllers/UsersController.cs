@@ -15,14 +15,13 @@ namespace BackendUsuarios.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class UsersController : ControllerBase
+public class UsersController : BaseController<User, UserCreateDto, UserUpdateDto>
 {
-	private readonly AppDbContext _context;
 	private readonly IConfiguration _configuration;
 
 	public UsersController(AppDbContext context, IConfiguration configuration)
+		: base(context)
 	{
-		_context = context;
 		_configuration = configuration;
 	}
 
@@ -75,64 +74,6 @@ public class UsersController : ControllerBase
 	}
 
 	/// <summary>
-	/// Retrieves all users.
-	/// </summary>
-	[HttpGet]
-	public async Task<IActionResult> GetUsers()
-	{
-		try
-		{
-			var users = await _context.Users
-				.Include(u => u.Role)
-				.Select(u => new
-				{
-					u.Id,
-					u.Name,
-					u.Email,
-					Role = u.Role != null ? u.Role.Name : "User"
-				})
-				.ToListAsync();
-
-			return Ok(users);
-		}
-		catch (Exception ex)
-		{
-			return StatusCode(500, new { Message = "Error retrieving users", Error = ex.Message });
-		}
-	}
-
-	/// <summary>
-	/// Retrieves a user by ID.
-	/// </summary>
-	[HttpGet("{id:guid}")]
-	public async Task<IActionResult> GetUserById(Guid id)
-	{
-		try
-		{
-			var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == id);
-			if (user == null)
-			{
-				return NotFound(new { Message = $"User with ID {id} not found." });
-			}
-
-			var response = new UserResponseDto
-			{
-				Id = user.Id,
-				Name = user.Name,
-				Email = user.Email,
-				Role = user.Role?.Name ?? "User"
-			};
-
-			return Ok(response);
-		}
-		catch (Exception ex)
-		{
-			return StatusCode(500, new { Message = "Error retrieving user", Error = ex.Message });
-		}
-	}
-
-
-	/// <summary>
 	/// Creates a new user.
 	/// </summary>
 	[HttpPost]
@@ -166,14 +107,13 @@ public class UsersController : ControllerBase
 				Role = (await _context.Roles.FindAsync(user.RoleId))?.Name ?? "User"
 			};
 
-			return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, response);
+			return CreatedAtAction(nameof(GetById), new { id = user.Id }, response);
 		}
 		catch (Exception ex)
 		{
 			return StatusCode(500, new { Message = "An error occurred while creating the user.", Error = ex.Message });
 		}
 	}
-
 
 	/// <summary>
 	/// Updates an existing user.
@@ -222,31 +162,6 @@ public class UsersController : ControllerBase
 		catch (Exception ex)
 		{
 			return StatusCode(500, new { Message = "Error updating user", Error = ex.Message });
-		}
-	}
-
-
-	/// <summary>
-	/// Deletes a user by ID.
-	/// </summary>
-	[HttpDelete("{id:guid}")]
-	public async Task<IActionResult> DeleteUser(Guid id)
-	{
-		try
-		{
-			var user = await _context.Users.FindAsync(id);
-			if (user == null)
-			{
-				return NotFound(new { Message = $"User with ID {id} not found." });
-			}
-
-			_context.Users.Remove(user);
-			await _context.SaveChangesAsync();
-			return Ok(new { Message = $"User with ID {id} successfully deleted." });
-		}
-		catch (Exception ex)
-		{
-			return StatusCode(500, new { Message = "Error deleting user", Error = ex.Message });
 		}
 	}
 

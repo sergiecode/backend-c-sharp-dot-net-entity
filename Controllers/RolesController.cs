@@ -10,71 +10,93 @@ namespace BackendUsuarios.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize(Roles = "Admin")]
-    public class RolesController : ControllerBase
+    public class RolesController : BaseController<Role, RoleCreateDto, RoleUpdateDto>
     {
-        private readonly AppDbContext _context;
+        private readonly IConfiguration _configuration;
 
-        public RolesController(AppDbContext context)
+        public RolesController(AppDbContext context, IConfiguration configuration)
+            : base(context)
         {
-            _context = context;
-        }
-
-        [HttpGet]
-        public async Task<IActionResult> GetRoles()
-        {
-            var roles = await _context.Roles.ToListAsync();
-            return Ok(roles);
-        }
-
-        [HttpGet("{id:guid}")]
-        public async Task<IActionResult> GetRoleById(Guid id)
-        {
-            var role = await _context.Roles.FindAsync(id);
-            if (role == null)
-                return NotFound(new { Message = "Role not found." });
-
-            return Ok(role);
+            _configuration = configuration;
         }
 
         [HttpPost]
         public async Task<IActionResult> CreateRole([FromBody] RoleCreateDto roleDto)
         {
-            if (await _context.Roles.AnyAsync(r => r.Name == roleDto.Name))
-                return BadRequest(new { Message = "The role already exists." });
+            try
+            {
+                // Check if the role already exists
+                if (await _context.Roles.AnyAsync(r => r.Name == roleDto.Name))
+                {
+                    return BadRequest(new { Message = "The role already exists." });
+                }
 
-            var role = new Role { Id = Guid.NewGuid(), Name = roleDto.Name };
-            _context.Roles.Add(role);
-            await _context.SaveChangesAsync();
+                // Create the new role
+                var role = new Role
+                {
+                    Id = Guid.NewGuid(),
+                    Name = roleDto.Name
+                };
 
-            return CreatedAtAction(nameof(GetRoleById), new { id = role.Id }, role);
+                // Add the role to the context and save changes
+                _context.Roles.Add(role);
+                await _context.SaveChangesAsync();
+
+                // Prepare the response
+                var response = new
+                {
+                    role.Id,
+                    role.Name
+                };
+
+                // Return the created role
+                return CreatedAtAction(nameof(GetById), new { id = role.Id }, response);
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex, "An error occurred while creating the role.");
+            }
         }
 
         [HttpPut("{id:guid}")]
         public async Task<IActionResult> UpdateRole(Guid id, [FromBody] RoleUpdateDto updatedRoleDto)
         {
-            var role = await _context.Roles.FindAsync(id);
-            if (role == null)
-                return NotFound(new { Message = "Role not found." });
+            try
+            {
+                // Find the role by ID
+                var role = await _context.Roles.FindAsync(id);
+                if (role == null)
+                {
+                    return NotFound(new { Message = "Role not found." });
+                }
 
-            if (await _context.Roles.AnyAsync(r => r.Name == updatedRoleDto.Name && r.Id != id))
-                return BadRequest(new { Message = "The role name is already in use." });
+                // Check if the role name is already in use
+                if (await _context.Roles.AnyAsync(r => r.Name == updatedRoleDto.Name && r.Id != id))
+                {
+                    return BadRequest(new { Message = "The role name is already in use." });
+                }
 
-            role.Name = updatedRoleDto.Name;
-            await _context.SaveChangesAsync();
+                // Update the role name
+                role.Name = updatedRoleDto.Name;
 
-            return Ok(new { Message = "Role updated successfully.", Role = role });
+                // Save changes
+                await _context.SaveChangesAsync();
+
+                // Prepare the response
+                var response = new
+                {
+                    role.Id,
+                    role.Name
+                };
+
+                // Return success message and updated role
+                return Ok(new { Message = "Role updated successfully.", Role = response });
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex, "Error updating role.");
+            }
         }
 
-        [HttpDelete("{id:guid}")]
-        public async Task<IActionResult> DeleteRole(Guid id)
-        {
-            var role = await _context.Roles.FindAsync(id);
-            if (role == null)
-                return NotFound(new { Message = "Role not found." });
-
-            _context.Roles.Remove(role);
-            await _context.SaveChangesAsync();
-            return Ok(new { Message = "Role deleted successfully." });
-        }
     }
 }

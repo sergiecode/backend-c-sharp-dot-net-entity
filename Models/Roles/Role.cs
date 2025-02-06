@@ -1,6 +1,4 @@
 namespace BackendUsuarios.Models.Roles;  // Define el espacio de nombres para los modelos de datos.
-public class Role
+public class Role : BaseEntity  // Define la clase Role que hereda de BaseEntity.
 {
-    public Guid Id { get; set; }
-    public required string Name { get; set; }
 }
