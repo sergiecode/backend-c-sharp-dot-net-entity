@@ -1,179 +1,183 @@
-using BackendUsuarios.Data; // Importa el espacio de nombres donde se encuentra el contexto de base de datos (AppDbContext).
-using BackendUsuarios.Models; // Importa los modelos de datos (por ejemplo, User).
-using Microsoft.AspNetCore.Mvc; // Proporciona clases para crear controladores y manejar solicitudes HTTP.
-using Microsoft.AspNetCore.Authorization; // Habilita la autorización para proteger controladores o endpoints.
-using System.Security.Claims; // Proporciona clases para manejar claims (información del usuario autenticado).
-using Microsoft.IdentityModel.Tokens; // Permite trabajar con tokens de seguridad (e.g., claves de firma).
-using System.IdentityModel.Tokens.Jwt; // Proporciona funcionalidad para crear y manejar tokens JWT.
-using System.Text; // Permite trabajar con codificación de texto.
-using BCrypt.Net; // Biblioteca para realizar el hash y verificación de contraseñas.
+using BackendUsuarios.Data;
+using BackendUsuarios.Models.Roles;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
+using BCrypt.Net;
+using Microsoft.EntityFrameworkCore;
+using BackendUsuarios.Models.Users;
 
-namespace BackendUsuarios.Controllers; // Define el espacio de nombres del controlador.
+namespace BackendUsuarios.Controllers;
 
-[ApiController] // Especifica que esta clase es un controlador API.
-[Route("api/[controller]")] // Configura la ruta base para este controlador (e.g., "api/users").
-[Authorize] // Requiere autenticación para todos los métodos del controlador, a menos que se anule.
-public class UsersController : ControllerBase // Define un controlador base para manejar solicitudes HTTP.
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class UsersController : BaseController<User, UserCreateDto, UserUpdateDto>
 {
-	private readonly AppDbContext _context; // Inyección del contexto de base de datos para interactuar con la DB.
-	private readonly IConfiguration _configuration; // Inyección de la configuración para acceder a las claves de appsettings.json.
+	private readonly IConfiguration _configuration;
 
-	// Constructor del controlador que inicializa las dependencias inyectadas.
 	public UsersController(AppDbContext context, IConfiguration configuration)
+		: base(context)
 	{
-		_context = context; // Inicializa el contexto de base de datos.
-		_configuration = configuration; // Inicializa la configuración.
+		_configuration = configuration;
 	}
 
-	// Endpoint para iniciar sesión.
-	[HttpPost("login")] // Define una ruta POST en "api/users/login".
-	[AllowAnonymous] // Permite el acceso sin autenticación.
-	public IActionResult Login([FromBody] LoginRequest request) // Recibe un objeto con las credenciales de login.
+	/// <summary>
+	/// Authenticates a user and generates a JWT token.
+	/// </summary>
+	[HttpPost("login")]
+	[AllowAnonymous]
+	public async Task<IActionResult> Login([FromBody] LoginRequest request)
 	{
-		// Busca el usuario en la base de datos por su email.
-		var user = _context.Users.FirstOrDefault(u => u.Email == request.Email);
-		
-		// Verifica si el usuario existe y si la contraseña proporcionada es válida.
-		if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+		try
 		{
-			return Unauthorized(new { Message = "Credenciales inválidas" }); // Retorna un error 401 si las credenciales son incorrectas.
+			var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Email == request.Email);
+
+			if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+			{
+				return Unauthorized(new { Message = "Invalid credentials" });
+			}
+
+			var claims = new[]
+			{
+				new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+				new Claim(ClaimTypes.Email, user.Email),
+				new Claim(ClaimTypes.Role, user.Role?.Name ?? "User")
+			};
+
+			var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+			var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+			var token = new JwtSecurityToken(
+				issuer: _configuration["Jwt:Issuer"],
+				audience: _configuration["Jwt:Audience"],
+				claims: claims,
+				expires: DateTime.Now.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpireMinutes"])),
+				signingCredentials: creds
+			);
+
+			return Ok(new
+			{
+				Token = new JwtSecurityTokenHandler().WriteToken(token),
+				Expiration = token.ValidTo,
+				UserId = user.Id,
+				Role = user.Role?.Name
+			});
 		}
-
-		// Crea un conjunto de claims para el usuario autenticado.
-		var claims = new[]
+		catch (Exception ex)
 		{
-			new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), // Agrega el ID del usuario como claim.
-			new Claim(ClaimTypes.Email, user.Email) // Agrega el email del usuario como claim.
-		};
-
-		// Genera una clave simétrica a partir de la configuración (clave secreta para firmar el token).
-		var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
-		// Crea credenciales de firma para el token usando la clave.
-		var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-		// Genera el token JWT con los claims, la configuración y el tiempo de expiración.
-		var token = new JwtSecurityToken(
-			issuer: _configuration["Jwt:Issuer"], // Emisor del token.
-			audience: _configuration["Jwt:Audience"], // Audiencia del token.
-			claims: claims, // Claims del usuario.
-			expires: DateTime.Now.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpireMinutes"])), // Tiempo de expiración.
-			signingCredentials: creds // Credenciales de firma.
-		);
-
-		// Retorna el token generado junto con información adicional (expiración e ID del usuario).
-		return Ok(new {
-			Token = new JwtSecurityTokenHandler().WriteToken(token), // Escribe el token como una cadena.
-			Expiration = token.ValidTo, // Fecha de expiración del token.
-			UserId = user.Id // ID del usuario autenticado.
-		});
+			return StatusCode(500, new { Message = "An internal error occurred", Error = ex.Message });
+		}
 	}
 
-	// Endpoint para obtener todos los usuarios.
-	[HttpGet] // Define una ruta GET en "api/users".
-	public IActionResult GetUsers()
+	/// <summary>
+	/// Creates a new user.
+	/// </summary>
+	[HttpPost]
+	[AllowAnonymous]
+	public async Task<IActionResult> CreateUser([FromBody] UserCreateDto userDto)
 	{
-		// Obtiene la lista de usuarios desde la base de datos.
-		var users = _context.Users.ToList();
-		return Ok(users); // Retorna la lista en la respuesta HTTP.
+		try
+		{
+			if (await _context.Users.AnyAsync(u => u.Email == userDto.Email))
+			{
+				return BadRequest(new { Message = "The email is already in use." });
+			}
+
+			var user = new User
+			{
+				Id = Guid.NewGuid(),
+				Name = userDto.Name,
+				Email = userDto.Email,
+				Password = BCrypt.Net.BCrypt.HashPassword(userDto.Password),
+				RoleId = userDto.RoleId
+			};
+
+			_context.Users.Add(user);
+			await _context.SaveChangesAsync();
+
+			var response = new UserResponseDto
+			{
+				Id = user.Id,
+				Name = user.Name,
+				Email = user.Email,
+				Role = (await _context.Roles.FindAsync(user.RoleId))?.Name ?? "User"
+			};
+
+			return CreatedAtAction(nameof(GetById), new { id = user.Id }, response);
+		}
+		catch (Exception ex)
+		{
+			return StatusCode(500, new { Message = "An error occurred while creating the user.", Error = ex.Message });
+		}
 	}
 
-	// Endpoint para obtener un usuario por su ID.
-	[HttpGet("{id:int}")] // Define una ruta GET con un parámetro de ID entero.
-	public IActionResult GetUserById(int id)
+	/// <summary>
+	/// Updates an existing user.
+	/// </summary>
+	[HttpPut("{id:guid}")]
+	public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UserUpdateDto updatedUserDto)
 	{
-		// Busca al usuario en la base de datos por su ID.
-		var user = _context.Users.FirstOrDefault(u => u.Id == id);
-		// Retorna 404 si el usuario no existe; de lo contrario, retorna el usuario.
-		return user == null ? NotFound(new { Message = $"User with ID {id} not found." }) : Ok(user);
+		try
+		{
+			if (!ModelState.IsValid)
+			{
+				return BadRequest(ModelState);
+			}
+
+			var user = await _context.Users.FindAsync(id);
+			if (user == null)
+			{
+				return NotFound(new { Message = "User not found" });
+			}
+
+			if (await _context.Users.AnyAsync(u => u.Id != id && u.Email == updatedUserDto.Email))
+			{
+				return BadRequest(new { Message = "Email is already in use" });
+			}
+
+			user.Name = updatedUserDto.Name;
+			user.Email = updatedUserDto.Email;
+
+			if (!string.IsNullOrEmpty(updatedUserDto.Password))
+			{
+				user.Password = BCrypt.Net.BCrypt.HashPassword(updatedUserDto.Password, BCrypt.Net.BCrypt.GenerateSalt(12));
+			}
+
+			await _context.SaveChangesAsync();
+
+			var response = new UserResponseDto
+			{
+				Id = user.Id,
+				Name = user.Name,
+				Email = user.Email,
+				Role = (await _context.Roles.FindAsync(user.RoleId))?.Name ?? "User"
+			};
+
+			return Ok(new { Message = "User updated successfully", User = response });
+		}
+		catch (Exception ex)
+		{
+			return StatusCode(500, new { Message = "Error updating user", Error = ex.Message });
+		}
 	}
 
-	// Endpoint para crear un nuevo usuario.
-	[HttpPost] // Define una ruta POST en "api/users".
-	[AllowAnonymous] // Permite el acceso sin autenticación.
-	public IActionResult CreateUser([FromBody] User user) // Recibe un objeto con los datos del usuario a crear.
+	/// <summary>
+	/// Returns data accessible only to admins.
+	/// </summary>
+	[HttpGet("admin")]
+	[Authorize(Roles = "Admin")]
+	public IActionResult GetAdminData()
 	{
-		// Valida el modelo recibido; si no es válido, retorna un error 400.
-		if (!ModelState.IsValid)
-		{
-			return BadRequest(ModelState);
-		}
-
-		// Verifica si el correo ya está en uso en la base de datos.
-		if (_context.Users.Any(u => u.Email == user.Email))
-		{
-			return BadRequest(new { Message = "El correo ya está en uso" }); // Retorna un error 400 si ya existe.
-		}
-
-		// Hashea la contraseña del usuario antes de guardarla.
-		user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password, BCrypt.Net.BCrypt.GenerateSalt(12));
-		
-		// Agrega el usuario a la base de datos y guarda los cambios.
-		_context.Users.Add(user);
-		_context.SaveChanges();
-
-		// Retorna un 201 con la información del usuario creado.
-		return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, user);
+		return Ok(new { Message = "Only administrators can view this." });
 	}
 
-	// Endpoint para actualizar un usuario existente.
-	[HttpPut("{id:int}")] // Define una ruta PUT con un parámetro de ID entero.
-	public IActionResult UpdateUser(int id, [FromBody] User updatedUser)
-	{
-		// Valida el modelo recibido; si no es válido, retorna un error 400.
-		if (!ModelState.IsValid)
-		{
-			return BadRequest(ModelState);
-		}
-
-		// Busca al usuario en la base de datos por su ID.
-		var user = _context.Users.FirstOrDefault(u => u.Id == id);
-		if (user == null)
-		{
-			return NotFound(new { Message = $"Usuario no encontrado" }); // Retorna 404 si el usuario no existe.
-		}
-
-		// Verifica si el correo ya está en uso por otro usuario.
-		if (_context.Users.Any(u => u.Id != id && u.Email == updatedUser.Email))
-		{
-			return BadRequest(new { Message = "El correo ya está en uso" }); // Retorna un error 400 si ya existe.
-		}
-
-		// Actualiza la contraseña si es diferente de la existente.
-		if (!BCrypt.Net.BCrypt.Verify(updatedUser.Password, user.Password))
-		{
-			user.Password = BCrypt.Net.BCrypt.HashPassword(updatedUser.Password, BCrypt.Net.BCrypt.GenerateSalt(12));
-		}
-
-		// Actualiza los datos del usuario.
-		user.Name = updatedUser.Name;
-		user.Email = updatedUser.Email;
-
-		// Guarda los cambios en la base de datos.
-		_context.SaveChanges();
-		return Ok(new { Message = $"Usuario actualizado", User = user }); // Retorna el usuario actualizado.
-	}
-
-	// Endpoint para eliminar un usuario por su ID.
-	[HttpDelete("{id:int}")] // Define una ruta DELETE con un parámetro de ID entero.
-	public IActionResult DeleteUser(int id)
-	{
-		// Busca al usuario en la base de datos por su ID.
-		var user = _context.Users.FirstOrDefault(u => u.Id == id);
-		if (user == null)
-		{
-			return NotFound(new { Message = $"User with ID {id} not found." }); // Retorna 404 si no existe.
-		}
-
-		// Elimina al usuario de la base de datos y guarda los cambios.
-		_context.Users.Remove(user);
-		_context.SaveChanges();
-		return Ok(new { Message = $"User with ID {id} deleted successfully." }); // Retorna un mensaje de éxito.
-	}
-
-	// Clase DTO (Data Transfer Object) para recibir los datos de login.
 	public class LoginRequest
 	{
-		public string Email { get; set; } // Email del usuario.
-		public string Password { get; set; } // Contraseña del usuario.
+		public string Email { get; set; } = string.Empty;
+		public string Password { get; set; } = string.Empty;
 	}
 }

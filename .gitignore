@@ -4,3 +4,6 @@
 # Ignorar otros archivos que no quieras subir
 bin/
 obj/
+
+# Ignorar la carpeta Migrations
+Migrations/
